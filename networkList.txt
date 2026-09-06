@@ -1,0 +1,26 @@
+# Backend addresses, tried in order. THE FIRST ONE THAT ANSWERS /api/time wins,
+# and it keeps being used until it stops responding - only then is the list
+# rescanned.
+#
+# THIS IS A TEMPLATE. Copy it into the Pi's directory - the flat one holding the
+# scripts and the sensorVPD/ and pi_common/ lib folders:
+#
+#     cp "PI env/networkList.txt" ~/sp_dashboard/
+#
+# ONE FILE PER PI. Every client on the box reads it: the sensors, the mister and
+# the device agent. There is nothing to keep in step, because the repo's
+# "PI sensor" / "Pi Actuator" split does not survive deployment.
+#
+# $SENSOR_NETWORK_LIST / $MIST_NETWORK_LIST / $SP_NETWORK_LIST override it per
+# service, which is useful on the bench and nowhere else.
+#
+# Blank lines and # comments are ignored. One address per line, no port and no
+# scheme - the port comes from the client (5000).
+#
+# Check the backend PC's address with `ipconfig`. If none of these answer, the
+# clients keep retrying: a sensor goes on sampling into its local cache the
+# whole time and uploads the backlog once an address responds.
+
+10.230.146.87
+192.168.1.100
+192.168.1.130

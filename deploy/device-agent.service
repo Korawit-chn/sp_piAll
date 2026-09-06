@@ -1,0 +1,44 @@
+[Unit]
+# The ONLY thing that reports device liveness. Install on every Pi - sensor,
+# actuator, or both:
+#
+#   sudo cp "PI env/deploy/device-agent.service" /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now device-agent
+#
+# It registers nothing. A heartbeat for a UUID that no sensor or actuator client
+# has registered is rejected by the backend, and the agent simply retries - so
+# starting this before or after the other services makes no difference.
+Description=Device status agent (heartbeat + clock)
+After=network.target sensor-timesync.service
+Wants=sensor-timesync.service
+
+[Service]
+Type=simple
+
+# Runs as `pi`, NOT root. It never steps the system clock - sensor-timesync
+# does that once at boot - so it needs no privileges at all.
+User=pi
+
+# Creates /run/sp_dashboard owned by this user on start and removes it on stop.
+# That is why the agent never has to mkdir, and why a stale clock.json cannot
+# outlive the service. /run is tmpfs, so it also clears on reboot: an offset
+# measured before a power cut must never be trusted afterwards.
+RuntimeDirectory=sp_dashboard
+
+# device_agent.py sits in this directory next to the other clients, with
+# pi_common/ beside it - running a script puts its own folder first on
+# sys.path, so the import needs no install step.
+WorkingDirectory=/home/pi/sp_dashboard
+ExecStart=/home/pi/venv/bin/python3 /home/pi/sp_dashboard/device_agent.py
+
+# SIGTERM is handled in-process: the agent posts a SHUTDOWN device event before
+# exiting, which is what distinguishes "deliberately stopped" from "power cut".
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
