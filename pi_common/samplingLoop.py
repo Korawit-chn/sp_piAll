@@ -94,13 +94,18 @@ class SamplingLoop:
     Construction does the shared startup - cache, config, backend client, clock,
     tick scheduler, signal handlers - and then stops, so the caller can open its
     hardware using self.config before run() takes over.
+
+    `config_file` is the config this sensor reads, named by the calling script
+    (CONFIG_FILE in dht22.py / C5A.py) rather than by the systemd unit. None
+    falls back to $SENSOR_CONFIG and then to config.txt - see
+    pi_common.config.resolve_config_path().
     """
 
-    def __init__(self, stream, period_default=5):
+    def __init__(self, stream, period_default=5, config_file=None):
         cache.init_db()
 
         self.stream = stream
-        self.config = configlib.readConfig()
+        self.config = configlib.readConfig(config_file)
         self.stop_event = threading.Event()
 
         self.client = BackendClient(self.config, stream=stream)

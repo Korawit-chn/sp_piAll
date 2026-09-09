@@ -93,9 +93,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # UUID with different types registers as different sensors.
 UUID_FILE = Path(os.environ.get("SENSOR_UUID_FILE", BASE_DIR / "device_uuid.txt"))
 
-# config.txt is per-sensor. If both scripts run on one Pi, give each its own
-# file via SENSOR_CONFIG (see the systemd units in deploy/).
-DEFAULT_CONFIG_FILE = os.environ.get("SENSOR_CONFIG", "config.txt")
+# config.txt is per-sensor, and WHICH file a script reads is declared by the
+# SCRIPT - CONFIG_FILE at the top of dht22.py / C5A.py. That is what lets one
+# Pi run both sensors, and it is why a bench run reads the same file the
+# service does instead of whatever the environment happened to hold.
+#
+# $SENSOR_CONFIG survives as an override, for pointing a single run at a test
+# file. It beats the script's own name; see resolve_config_path().
+SENSOR_CONFIG_ENV = os.environ.get("SENSOR_CONFIG")
+
+# Only reached by a script that names no config of its own. On a Pi that also
+# runs the mist maker this is the MISTER's file - exactly the collision the
+# per-script CONFIG_FILE exists to prevent.
+FALLBACK_CONFIG_FILE = "config.txt"
 
 # Used only when the backend is unreachable and no period has ever been polled.
 DEFAULT_PERIOD_SECONDS = 5
@@ -128,7 +138,10 @@ def source_key(config):
 
 
 def resolve_config_path(filename=None):
-    path = Path(filename or DEFAULT_CONFIG_FILE)
+    # Order matters. The environment overrides the script, not the reverse:
+    # flipped, a script's own CONFIG_FILE would silently beat $SENSOR_CONFIG
+    # and there would be no way to point one run at a different file.
+    path = Path(SENSOR_CONFIG_ENV or filename or FALLBACK_CONFIG_FILE)
 
     if not path.is_absolute():
         # Prefer the file next to the scripts; fall back to the cwd copy.

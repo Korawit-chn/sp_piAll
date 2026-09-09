@@ -482,13 +482,32 @@ class BackendClient:
             payloads = [self._row_payload(row, now_epoch) for row in rows]
 
             if self._batch_supported:
-                sent = self._send_batch(base_url, payloads)
+                result = self._send_batch(base_url, payloads)
 
-                if sent is None:
+                if result is None:
                     return  # network problem - try again next cycle
 
+                # Rows the backend refused, by index into this batch.
+                #
+                # They are malformed - a missing temperature, humidity or VPD -
+                # so they can never succeed, and NOT retiring them would wedge
+                # this queue forever behind rows that get rejected again every
+                # cycle. They are still discarded. What changes is that the
+                # loss is now VISIBLE: this used to retire the whole batch and
+                # report "Uploaded N rows", counting every reject as a success
+                # and losing those readings without a word.
+                rejected = result.get("rejected") or []
+
+                if rejected:
+                    stamps = ", ".join(
+                        str(rows[i]["timestamp"]) for i in rejected
+                        if 0 <= i < len(rows)
+                    )
+                    print(f"[{self.stream}] Backend rejected {len(rejected)} of "
+                          f"{len(rows)} rows as malformed - discarding: {stamps}")
+
                 self._retire([row["id"] for row in rows])
-                print(f"[{self.stream}] Uploaded {len(rows)} rows "
+                print(f"[{self.stream}] Uploaded {len(rows) - len(rejected)} rows "
                       f"({rows[0]['timestamp']} .. {rows[-1]['timestamp']})")
             else:
                 if not self._send_one_by_one(base_url, rows, payloads):
@@ -511,11 +530,31 @@ class BackendClient:
                 self._batch_supported = False
                 return None
 
+            if r.status_code == 409:
+                # The backend has no Sensor row for this sensorID any more -
+                # almost always a rebuilt database. These rows can never be
+                # accepted as they stand, and a non-200 is retried unchanged,
+                # so without this the queue jams on them forever. Dropping the
+                # id makes register_sensor_if_needed() earn a fresh one on the
+                # next maintenance cycle; the cached readings are untouched and
+                # go up under the new id.
+                print(f"[{self.stream}] Backend does not know sensorID "
+                      f"{self.sensor_id} - re-registering")
+                with self._lock:
+                    self._sensor_id = None
+                return None
+
             if r.status_code != 200:
                 print(f"[{self.stream}] Batch upload failed: {r.status_code} {r.text[:200]}")
                 return None
 
-            return r.json().get("inserted", len(payloads))
+            # The whole body, not just `inserted`: the caller needs `rejected`
+            # too, and dropping it here is what made malformed rows vanish
+            # without any record that they had been thrown away.
+            try:
+                return r.json()
+            except ValueError:
+                return {"inserted": len(payloads), "rejected": []}
 
         except Exception as e:
             print(f"[{self.stream}] Batch upload error:", e)
@@ -531,6 +570,13 @@ class BackendClient:
 
                 if r.status_code == 200:
                     uploaded.append(row["id"])
+                elif r.status_code == 409:
+                    # Same reasoning as the batch path above.
+                    print(f"[{self.stream}] Backend does not know sensorID "
+                          f"{self.sensor_id} - re-registering")
+                    with self._lock:
+                        self._sensor_id = None
+                    break
                 else:
                     print(f"[{self.stream}] Upload failed for record {row['id']}: "
                           f"{r.status_code} {r.text[:200]}")
