@@ -489,13 +489,18 @@ class BackendClient:
 
                 # Rows the backend refused, by index into this batch.
                 #
-                # They are malformed - a missing temperature, humidity or VPD -
-                # so they can never succeed, and NOT retiring them would wedge
-                # this queue forever behind rows that get rejected again every
-                # cycle. They are still discarded. What changes is that the
-                # loss is now VISIBLE: this used to retire the whole batch and
-                # report "Uploaded N rows", counting every reject as a success
-                # and losing those readings without a word.
+                # They are malformed - a missing field, or a value the
+                # SensorLog columns cannot hold, such as the 6553.5 a corrupt
+                # C5A frame produces - so they can never succeed, and NOT
+                # retiring them would wedge this queue forever behind rows that
+                # get rejected again every cycle. They are still discarded here.
+                #
+                # The loss is recorded in two places, neither of which is this
+                # cache: the line below, and an ErrorLog row the backend writes
+                # with errorType "data corrupt", stamped with the READING's own
+                # time. So a sensor drifting into garbage is answerable after
+                # the fact, which it was not when this retired the whole batch
+                # and reported "Uploaded N rows" without a word.
                 rejected = result.get("rejected") or []
 
                 if rejected:
